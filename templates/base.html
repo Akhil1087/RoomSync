@@ -1,6 +1,105 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{% block title %}RoomSync{% endblock %}</title><link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet"><link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"><link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}"></head><body>
-<nav class="navbar navbar-expand-lg nav-main"><div class="container"><a class="navbar-brand" href="{{ url_for('home') }}">Room<span>Sync</span></a><button class="navbar-toggler" data-bs-toggle="collapse" data-bs-target="#nav">☰</button><div class="collapse navbar-collapse" id="nav"><ul class="navbar-nav ms-auto align-items-lg-center gap-lg-2">
-{% if current_user.is_authenticated and current_user.role == 'student' %}<li><a class="nav-link" href="{{ url_for('browse_pgs') }}">Find PGs</a></li><li><a class="nav-link" href="{{ url_for('matches') }}">Best Matches</a></li><li><a class="nav-link" href="{{ url_for('requests_page') }}">Requests</a></li><li><a class="nav-link" href="{{ url_for('dashboard') }}">My Profile</a></li><li><a class="btn btn-sm btn-dark rounded-pill px-3" href="{{ url_for('logout') }}">Logout</a></li>{% elif current_user.is_authenticated and current_user.role == 'admin' %}<li><a class="nav-link" href="{{ url_for('admin_dashboard') }}">Admin</a></li><li><a class="nav-link" href="{{ url_for('admin_pgs') }}">PG Listings</a></li><li><a class="nav-link" href="{{ url_for('admin_students') }}">Students</a></li><li><a class="btn btn-sm btn-dark rounded-pill px-3" href="{{ url_for('logout') }}">Logout</a></li>{% else %}<li><a class="nav-link" href="{{ url_for('home') }}">Home</a></li><li><a class="nav-link" href="{{ url_for('login') }}">Log in</a></li><li><a class="btn btn-sm btn-coral rounded-pill px-3" href="{{ url_for('register') }}">Join free</a></li>{% endif %}</ul></div></div></nav>
-<main>{% with messages=get_flashed_messages(with_categories=true) %}{% if messages %}<div class="container pt-3">{% for category,msg in messages %}<div class="alert alert-{{ category }} alert-dismissible fade show">{{ msg }}<button class="btn-close" data-bs-dismiss="alert"></button></div>{% endfor %}</div>{% endif %}{% endwith %}{% block content %}{% endblock %}</main>
-{% if current_user.is_authenticated and current_user.role == 'student' %}<button class="chat-fab" id="chatFab">✦</button><div class="chat-box" id="chatBox"><div class="chat-head">RoomSync Assistant <button id="chatClose">×</button></div><div class="chat-messages" id="chatMessages"><div class="bot">Hi! Ask me about compatibility, PGs, profiles, distance or contact requests.</div></div><form id="chatForm" class="chat-form"><input id="chatInput" placeholder="Ask something..." autocomplete="off"><button>Send</button></form></div>{% endif %}
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script><script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script><script src="{{ url_for('static', filename='app.js') }}"></script></body></html>
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}RoomSync{% endblock %}</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body class="roomsync-layout">
+  <div class="sidebar-backdrop" id="sidebarBackdrop"></div>
+  <aside class="app-sidebar" id="appSidebar" aria-label="Main navigation">
+    <div class="sidebar-brand-row">
+      <a class="sidebar-brand" href="{{ url_for('home') }}" aria-label="RoomSync home">Room<span>Sync</span></a>
+      <button class="sidebar-collapse" id="sidebarCollapse" type="button" aria-label="Collapse sidebar" title="Collapse sidebar">‹</button>
+    </div>
+
+    {% if current_user.is_authenticated and current_user.role == 'student' %}
+      <div class="sidebar-user"><div class="sidebar-avatar">{{ (current_user.full_name or 'S')[0]|upper }}</div><div class="sidebar-user-copy"><strong>{{ current_user.full_name }}</strong><small>Student account</small></div></div>
+      <div class="sidebar-label">DISCOVER</div>
+      <nav class="sidebar-nav">
+        <a class="side-link {% if request.endpoint == 'dashboard' %}active{% endif %}" href="{{ url_for('dashboard') }}"><span class="side-icon">⌂</span><span class="side-text">Dashboard</span></a>
+        <a class="side-link {% if request.endpoint in ['browse_pgs','pg_detail'] %}active{% endif %}" href="{{ url_for('browse_pgs') }}"><span class="side-icon">⌕</span><span class="side-text">Find PGs</span></a>
+        <a class="side-link {% if request.endpoint in ['matches','student_view'] %}active{% endif %}" href="{{ url_for('matches') }}"><span class="side-icon">✦</span><span class="side-text">Best Matches</span></a>
+      </nav>
+      <div class="sidebar-label">YOUR SPACE</div>
+      <nav class="sidebar-nav">
+        <a class="side-link {% if request.endpoint == 'profile' %}active{% endif %}" href="{{ url_for('profile') }}"><span class="side-icon">◉</span><span class="side-text">My Profile</span></a>
+        <a class="side-link {% if request.endpoint == 'requests_page' %}active{% endif %}" href="{{ url_for('requests_page') }}"><span class="side-icon">✉</span><span class="side-text">Requests</span></a>
+      </nav>
+      <div class="sidebar-bottom"><a class="side-link logout-link" href="{{ url_for('logout') }}"><span class="side-icon">↪</span><span class="side-text">Log out</span></a></div>
+
+    {% elif current_user.is_authenticated and current_user.role == 'admin' %}
+      <div class="sidebar-user"><div class="sidebar-avatar admin-avatar">A</div><div class="sidebar-user-copy"><strong>Administrator</strong><small>RoomSync control panel</small></div></div>
+      <div class="sidebar-label">MANAGEMENT</div>
+      <nav class="sidebar-nav">
+        <a class="side-link {% if request.endpoint == 'admin_dashboard' %}active{% endif %}" href="{{ url_for('admin_dashboard') }}"><span class="side-icon">▦</span><span class="side-text">Dashboard</span></a>
+        <a class="side-link {% if request.endpoint in ['admin_pgs','admin_pg_form'] %}active{% endif %}" href="{{ url_for('admin_pgs') }}"><span class="side-icon">⌂</span><span class="side-text">PG Listings</span></a>
+        <a class="side-link {% if request.endpoint == 'admin_students' %}active{% endif %}" href="{{ url_for('admin_students') }}"><span class="side-icon">♙</span><span class="side-text">Students</span></a>
+      </nav>
+      <div class="sidebar-bottom"><a class="side-link logout-link" href="{{ url_for('logout') }}"><span class="side-icon">↪</span><span class="side-text">Log out</span></a></div>
+
+    {% else %}
+      <div class="sidebar-label">WELCOME</div>
+      <nav class="sidebar-nav">
+        <a class="side-link {% if request.endpoint == 'home' %}active{% endif %}" href="{{ url_for('home') }}"><span class="side-icon">⌂</span><span class="side-text">Home</span></a>
+        <a class="side-link {% if request.endpoint in ['browse_pgs','pg_detail'] %}active{% endif %}" href="{{ url_for('browse_pgs') }}"><span class="side-icon">⌕</span><span class="side-text">Explore PGs</span></a>
+      </nav>
+      <div class="sidebar-label">GET STARTED</div>
+      <nav class="sidebar-nav">
+        <a class="side-link {% if request.endpoint == 'login' %}active{% endif %}" href="{{ url_for('login') }}"><span class="side-icon">↪</span><span class="side-text">Log in</span></a>
+        <a class="side-link {% if request.endpoint == 'register' %}active{% endif %}" href="{{ url_for('register') }}"><span class="side-icon">＋</span><span class="side-text">Create account</span></a>
+      </nav>
+      <div class="sidebar-note"><strong>Find your people.</strong><span>Discover a place and roommates that fit your lifestyle.</span></div>
+    {% endif %}
+    <div class="sidebar-footer"><span class="footer-dot"></span><span class="side-text">RoomSync · Find your fit</span></div>
+  </aside>
+
+  <div class="app-main" id="appMain">
+    <header class="mobile-topbar">
+      <button class="mobile-menu-btn" id="mobileMenuBtn" type="button" aria-label="Open navigation">☰</button>
+      <a class="mobile-brand" href="{{ url_for('home') }}">Room<span>Sync</span></a>
+      <span class="mobile-topbar-spacer"></span>
+    </header>
+    <main>
+      {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}<div class="container-fluid px-4 pt-3">{% for category, msg in messages %}<div class="alert alert-{{ category }} alert-dismissible fade show">{{ msg }}<button class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button></div>{% endfor %}</div>{% endif %}
+      {% endwith %}
+      {% block content %}{% endblock %}
+    </main>
+  </div>
+
+  {% if current_user.is_authenticated and current_user.role == 'student' %}
+    <button class="chat-fab" id="chatFab" aria-label="Open RoomSync assistant">✦</button>
+    <div class="chat-box" id="chatBox"><div class="chat-head">RoomSync Assistant <button id="chatClose" aria-label="Close assistant">×</button></div><div class="chat-messages" id="chatMessages"><div class="bot">Hi! Ask me about compatibility, PGs, profiles, distance or contact requests.</div></div><form id="chatForm" class="chat-form"><input id="chatInput" placeholder="Ask something..." autocomplete="off"><button>Send</button></form></div>
+  {% endif %}
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="{{ url_for('static', filename='app.js') }}"></script>
+  <script>
+    (() => {
+      const sidebar = document.getElementById('appSidebar');
+      const collapse = document.getElementById('sidebarCollapse');
+      const mobileBtn = document.getElementById('mobileMenuBtn');
+      const backdrop = document.getElementById('sidebarBackdrop');
+      if (!sidebar) return;
+      const applyCollapsed = (value) => {
+        document.body.classList.toggle('sidebar-collapsed', value);
+        if (collapse) collapse.textContent = value ? '›' : '‹';
+      };
+      applyCollapsed(localStorage.getItem('roomsync-sidebar-collapsed') === 'true');
+      collapse?.addEventListener('click', () => {
+        const next = !document.body.classList.contains('sidebar-collapsed');
+        applyCollapsed(next);
+        localStorage.setItem('roomsync-sidebar-collapsed', String(next));
+      });
+      mobileBtn?.addEventListener('click', () => document.body.classList.add('sidebar-mobile-open'));
+      backdrop?.addEventListener('click', () => document.body.classList.remove('sidebar-mobile-open'));
+      document.querySelectorAll('.side-link').forEach(link => link.addEventListener('click', () => document.body.classList.remove('sidebar-mobile-open')));
+    })();
+  </script>
+</body>
+</html>
