@@ -5,6 +5,7 @@ from functools import wraps
 from pathlib import Path
 
 from flask import Flask, flash, jsonify, redirect, render_template, request, url_for
+from flask_wtf.csrf import CSRFProtect
 from flask_login import LoginManager, current_user, login_required, login_user, logout_user
 from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.utils import secure_filename
@@ -18,10 +19,8 @@ UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 app = Flask(__name__)
 secret_key = os.environ.get("SECRET_KEY")
-
 if not secret_key:
     raise RuntimeError("SECRET_KEY environment variable is required.")
-
 app.config["SECRET_KEY"] = secret_key
 db_url = os.environ.get("DATABASE_URL", f"sqlite:///{BASE_DIR / 'roomsync.db'}")
 if db_url.startswith("postgres://"):
@@ -31,6 +30,9 @@ elif db_url.startswith("postgresql://"):
 app.config["SQLALCHEMY_DATABASE_URI"] = db_url
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 app.config["MAX_CONTENT_LENGTH"] = 8 * 1024 * 1024
+
+# Protect browser form submissions and JSON POST requests against CSRF.
+csrf = CSRFProtect(app)
 
 db.init_app(app)
 login_manager = LoginManager(app)
