@@ -17,7 +17,12 @@ UPLOAD_DIR = BASE_DIR / "static" / "uploads"
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 app = Flask(__name__)
-app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "roomsync-dev-secret-change-me")
+secret_key = os.environ.get("SECRET_KEY")
+
+if not secret_key:
+    raise RuntimeError("SECRET_KEY environment variable is required.")
+
+app.config["SECRET_KEY"] = secret_key
 db_url = os.environ.get("DATABASE_URL", f"sqlite:///{BASE_DIR / 'roomsync.db'}")
 if db_url.startswith("postgres://"):
     db_url = db_url.replace("postgres://", "postgresql+psycopg://", 1)
