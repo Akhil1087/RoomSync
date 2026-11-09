@@ -1,1 +1,41 @@
-{% extends 'base.html' %}{% block title %}Join RoomSync{% endblock %}{% block content %}<div class="auth-wrap"><div class="auth-card"><div class="eyebrow">STUDENT SIGN UP</div><h2>Create your RoomSync account</h2><p class="muted">Student accounts only. Your profile helps us find compatible roommates.</p><form method="post" class="row g-3"><div class="col-12"><label>Full name</label><input name="full_name" class="form-control" required></div><div class="col-md-6"><label>Email</label><input type="email" name="email" class="form-control" required></div><div class="col-md-6"><label>Phone</label><input name="phone" class="form-control"></div><div class="col-12"><label>Password</label><input type="password" name="password" minlength="6" class="form-control" required></div><div class="col-12"><button class="btn btn-coral w-100 rounded-pill">Create account</button></div></form><p class="text-center mt-3 mb-0">Already registered? <a href="{{ url_for('login') }}">Log in</a></p></div></div>{% endblock %}
+{% extends 'base.html' %}
+{% block title %}Join RoomSync{% endblock %}
+{% block content %}
+<div class="auth-wrap">
+    <div class="auth-card">
+        <div class="eyebrow">STUDENT SIGN UP</div>
+        <h2>Create your RoomSync account</h2>
+        <p class="muted">Student accounts only. Your profile helps us find compatible roommates.</p>
+
+        <form method="post" class="row g-3">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+            <div class="col-12">
+                <label>Full name</label>
+                <input name="full_name" class="form-control" required>
+            </div>
+
+            <div class="col-md-6">
+                <label>Email</label>
+                <input type="email" name="email" class="form-control" required>
+            </div>
+
+            <div class="col-md-6">
+                <label>Phone</label>
+                <input name="phone" class="form-control">
+            </div>
+
+            <div class="col-12">
+                <label>Password</label>
+                <input type="password" name="password" minlength="6" class="form-control" required>
+            </div>
+
+            <div class="col-12">
+                <button class="btn btn-coral w-100 rounded-pill">Create account</button>
+            </div>
+        </form>
+
+        <p class="text-center mt-3 mb-0">Already registered? <a href="{{ url_for('login') }}">Log in</a></p>
+    </div>
+</div>
+{% endblock %}
