@@ -28,6 +28,7 @@
       <div class="sidebar-label">YOUR SPACE</div>
       <nav class="sidebar-nav">
         <a class="side-link {% if request.endpoint == 'profile' %}active{% endif %}" href="{{ url_for('profile') }}"><span class="side-icon">◉</span><span class="side-text">My Profile</span></a>
+        <a class="side-link {% if request.endpoint == 'favorites_page' %}active{% endif %}" href="{{ url_for('favorites_page') }}"><span class="side-icon">♡</span><span class="side-text">Favourites</span></a>
         <a class="side-link {% if request.endpoint == 'requests_page' %}active{% endif %}" href="{{ url_for('requests_page') }}"><span class="side-icon">✉</span><span class="side-text">Requests</span></a>
       </nav>
       <div class="sidebar-bottom"><a class="side-link logout-link" href="{{ url_for('logout') }}"><span class="side-icon">↪</span><span class="side-text">Log out</span></a></div>
