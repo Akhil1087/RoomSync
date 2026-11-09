@@ -11,7 +11,7 @@ from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.utils import secure_filename
 
 from matching import WEIGHTS, calculate_compatibility, get_ranked_matches
-from models import Admin, ChatLog, ContactRequest, PGFlat, Profile, Room, Student, db
+from models import Admin, ChatLog, ContactRequest, Favorite, PGFlat, Profile, Room, Student, db
 
 BASE_DIR = Path(__file__).resolve().parent
 UPLOAD_DIR = BASE_DIR / "static" / "uploads"
@@ -112,6 +112,41 @@ def allowed_file(filename):
     return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_EXTENSIONS
 
 
+def migrate_existing_schema():
+    """Add new optional columns to existing deployments without dropping data."""
+    from sqlalchemy import inspect, text
+    additions = {
+        "profiles": {
+            "college": "VARCHAR(160) DEFAULT ''", "campus": "VARCHAR(40) DEFAULT ''",
+            "smoking_preference": "VARCHAR(40) DEFAULT 'No preference'",
+            "drinking_preference": "VARCHAR(40) DEFAULT 'No preference'",
+            "sharing_preference": "VARCHAR(40) DEFAULT 'Any'",
+        },
+        "pg_flats": {
+            "property_type": "VARCHAR(40) DEFAULT 'PG'", "campus": "VARCHAR(40) DEFAULT 'North Campus'",
+            "college_area": "VARCHAR(160) DEFAULT ''", "security_deposit": "INTEGER DEFAULT 0",
+            "gender_preference": "VARCHAR(30) DEFAULT 'Any'", "food_available": "BOOLEAN DEFAULT FALSE",
+            "availability_status": "VARCHAR(30) DEFAULT 'Available'", "is_featured": "BOOLEAN DEFAULT FALSE",
+        },
+    }
+    inspector = inspect(db.engine)
+    for table, columns in additions.items():
+        if table not in inspector.get_table_names():
+            continue
+        existing = {column["name"] for column in inspector.get_columns(table)}
+        for column, definition in columns.items():
+            if column not in existing:
+                db.session.execute(text(f'ALTER TABLE "{table}" ADD COLUMN "{column}" {definition}'))
+    db.session.commit()
+
+
+DU_COLLEGES = {
+    "North Campus": ["Daulat Ram College", "Hansraj College", "Hindu College", "Indraprastha College for Women", "Kirori Mal College", "Miranda House", "Ramjas College", "Shri Ram College of Commerce", "St. Stephen's College", "Sri Guru Tegh Bahadur Khalsa College", "Faculty of Law", "Delhi School of Economics"],
+    "South Campus": ["Atma Ram Sanatan Dharma College", "College of Vocational Studies", "Delhi College of Arts and Commerce", "Jesus and Mary College", "Maitreyi College", "Ram Lal Anand College", "Sri Venkateswara College", "Shaheed Bhagat Singh College", "Aryabhatta College", "Motilal Nehru College", "Sri Aurobindo College", "Gargi College", "Kamala Nehru College"],
+    "Off-Campus": ["Acharya Narendra Dev College", "Aditi Mahavidyalaya", "Bhim Rao Ambedkar College", "Bhaskaracharya College of Applied Sciences", "Deen Dayal Upadhyaya College", "Maharaja Agrasen College", "Mata Sundri College for Women", "PGDAV College", "Rajdhani College", "Satyawati College", "Shyam Lal College", "Vivekananda College", "Zakir Husain Delhi College"]
+}
+
+
 def seed_data():
     if Admin.query.first():
         return
@@ -199,6 +234,11 @@ def profile():
         profile.social_habits = request.form.get("social_habits", "")
         profile.study_habits = request.form.get("study_habits", "")
         profile.bio = request.form.get("bio", "").strip()
+        profile.college = request.form.get("college", "").strip()
+        profile.campus = request.form.get("campus", "").strip()
+        profile.smoking_preference = request.form.get("smoking_preference", "No preference")
+        profile.drinking_preference = request.form.get("drinking_preference", "No preference")
+        profile.sharing_preference = request.form.get("sharing_preference", "Any")
         profile.pg_flat_id = parse_int(request.form.get("pg_flat_id"), 0) or None
         profile.looking_since = date.fromisoformat(request.form.get("looking_since")) if request.form.get("looking_since") else date.today()
         current_user.phone = request.form.get("phone", "").strip()
@@ -206,7 +246,7 @@ def profile():
         db.session.commit()
         flash("Profile saved successfully.", "success")
         return redirect(url_for("dashboard"))
-    return render_template("profile_form.html", profile=profile, pgs=pgs)
+    return render_template("profile_form.html", profile=profile, pgs=pgs, colleges=DU_COLLEGES)
 
 
 @app.route("/dashboard")
@@ -222,21 +262,52 @@ def browse_pgs():
     max_rent = parse_int(request.args.get("max_rent"), 0)
     max_distance = parse_float(request.args.get("distance"), 0)
     amenity = request.args.get("amenity", "").strip().lower()
-    listings = PGFlat.query.order_by(PGFlat.name).all()
+    campus = request.args.get("campus", "").strip()
+    college = request.args.get("college", "").strip()
+    property_type = request.args.get("property_type", "").strip()
+    gender = request.args.get("gender", "").strip()
+    food = request.args.get("food", "").strip()
+    listings = PGFlat.query.order_by(PGFlat.is_featured.desc(), PGFlat.name).all()
     items = []
     for pg in listings:
         d = distance_km(CAMPUS_LAT, CAMPUS_LON, pg.latitude, pg.longitude)
-        if city and pg.city.lower() != city.lower():
+        if pg.availability_status != "Available" or pg.available_rooms <= 0:
             continue
-        if max_rent and pg.rent_range_min > max_rent:
-            continue
-        if max_distance and d > max_distance:
-            continue
-        if amenity and amenity not in (pg.amenities or "").lower():
-            continue
+        if city and pg.city.lower() != city.lower(): continue
+        if max_rent and pg.rent_range_min > max_rent: continue
+        if max_distance and d > max_distance: continue
+        if amenity and amenity not in (pg.amenities or "").lower(): continue
+        if campus and pg.campus != campus: continue
+        if college and college.lower() not in (pg.college_area or "").lower(): continue
+        if property_type and pg.property_type != property_type: continue
+        if gender and pg.gender_preference not in {gender, "Any"}: continue
+        if food == "yes" and not pg.food_available: continue
         items.append((pg, d))
     cities = sorted({p.city for p in listings})
-    return render_template("pgs.html", items=items, cities=cities)
+    return render_template("pgs.html", items=items, cities=cities, campuses=list(DU_COLLEGES), colleges=DU_COLLEGES)
+
+
+@app.route("/favorites")
+@student_required
+def favorites_page():
+    saved = Favorite.query.filter_by(student_id=current_user.id).order_by(Favorite.created_at.desc()).all()
+    items = [(row.pg_flat, distance_km(CAMPUS_LAT, CAMPUS_LON, row.pg_flat.latitude, row.pg_flat.longitude)) for row in saved if row.pg_flat]
+    return render_template("pgs.html", items=items, cities=[], campuses=list(DU_COLLEGES), colleges=DU_COLLEGES, favorites_view=True)
+
+
+@app.post("/favorite/<int:pg_id>/toggle")
+@student_required
+def toggle_favorite(pg_id):
+    db.get_or_404(PGFlat, pg_id)
+    saved = Favorite.query.filter_by(student_id=current_user.id, pg_flat_id=pg_id).first()
+    if saved:
+        db.session.delete(saved)
+        flash("Property removed from favourites.", "info")
+    else:
+        db.session.add(Favorite(student_id=current_user.id, pg_flat_id=pg_id))
+        flash("Property saved to favourites.", "success")
+    db.session.commit()
+    return redirect(request.referrer or url_for("browse_pgs"))
 
 
 @app.route("/pg/<int:pg_id>")
@@ -349,6 +420,14 @@ def admin_pg_form(pg_id=None):
         pg.amenities = request.form.get("amenities", "").strip()
         pg.total_rooms = parse_int(request.form.get("total_rooms"))
         pg.available_rooms = parse_int(request.form.get("available_rooms"))
+        pg.property_type = request.form.get("property_type", "PG")
+        pg.campus = request.form.get("campus", "North Campus")
+        pg.college_area = request.form.get("college_area", "").strip()
+        pg.security_deposit = parse_int(request.form.get("security_deposit"))
+        pg.gender_preference = request.form.get("gender_preference", "Any")
+        pg.food_available = request.form.get("food_available") == "yes"
+        pg.availability_status = request.form.get("availability_status", "Available")
+        pg.is_featured = request.form.get("is_featured") == "yes"
         urls = request.form.get("image_urls", "").strip()
         uploaded = []
         for file in request.files.getlist("images"):
@@ -365,7 +444,7 @@ def admin_pg_form(pg_id=None):
         db.session.commit()
         flash("PG listing saved.", "success")
         return redirect(url_for("admin_pgs"))
-    return render_template("admin_pg_form.html", pg=pg)
+    return render_template("admin_pg_form.html", pg=pg, campuses=list(DU_COLLEGES))
 
 
 @app.post("/admin/pg/<int:pg_id>/delete")
@@ -502,6 +581,7 @@ def api_chat():
 
 with app.app_context():
     db.create_all()
+    migrate_existing_schema()
     seed_data()
 
 

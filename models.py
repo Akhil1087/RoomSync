@@ -51,6 +51,14 @@ class PGFlat(db.Model):
     amenities = db.Column(db.Text, default="")
     total_rooms = db.Column(db.Integer, default=0)
     available_rooms = db.Column(db.Integer, default=0)
+    property_type = db.Column(db.String(40), default="PG")
+    campus = db.Column(db.String(40), default="North Campus")
+    college_area = db.Column(db.String(160), default="")
+    security_deposit = db.Column(db.Integer, default=0)
+    gender_preference = db.Column(db.String(30), default="Any")
+    food_available = db.Column(db.Boolean, default=False)
+    availability_status = db.Column(db.String(30), default="Available")
+    is_featured = db.Column(db.Boolean, default=False)
     created_by_admin_id = db.Column(db.Integer, db.ForeignKey("admins.id"))
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     profiles = db.relationship("Profile", back_populates="pg_flat")
@@ -79,6 +87,11 @@ class Profile(db.Model):
     bio = db.Column(db.Text, default="")
     pg_flat_id = db.Column(db.Integer, db.ForeignKey("pg_flats.id"))
     looking_since = db.Column(db.Date, default=datetime.utcnow().date)
+    college = db.Column(db.String(160), default="")
+    campus = db.Column(db.String(40), default="")
+    smoking_preference = db.Column(db.String(40), default="No preference")
+    drinking_preference = db.Column(db.String(40), default="No preference")
+    sharing_preference = db.Column(db.String(40), default="Any")
     student = db.relationship("Student", back_populates="profile")
     pg_flat = db.relationship("PGFlat", back_populates="profiles")
 
@@ -111,3 +124,14 @@ class ChatLog(db.Model):
     message = db.Column(db.Text, nullable=False)
     sender = db.Column(db.String(20), nullable=False)
     timestamp = db.Column(db.DateTime, default=datetime.utcnow)
+
+
+class Favorite(db.Model):
+    __tablename__ = "favorites"
+    id = db.Column(db.Integer, primary_key=True)
+    student_id = db.Column(db.Integer, db.ForeignKey("students.id", ondelete="CASCADE"), nullable=False)
+    pg_flat_id = db.Column(db.Integer, db.ForeignKey("pg_flats.id", ondelete="CASCADE"), nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    __table_args__ = (db.UniqueConstraint("student_id", "pg_flat_id", name="uq_favorite_student_property"),)
+    student = db.relationship("Student", backref=db.backref("favorites", cascade="all, delete-orphan"))
+    pg_flat = db.relationship("PGFlat", backref=db.backref("favorited_by", cascade="all, delete-orphan"))
