@@ -30,6 +30,8 @@
         <a class="side-link {% if request.endpoint == 'profile' %}active{% endif %}" href="{{ url_for('profile') }}"><span class="side-icon">◉</span><span class="side-text">My Profile</span></a>
         <a class="side-link {% if request.endpoint == 'favorites_page' %}active{% endif %}" href="{{ url_for('favorites_page') }}"><span class="side-icon">♡</span><span class="side-text">Favourites</span></a>
         <a class="side-link {% if request.endpoint == 'requests_page' %}active{% endif %}" href="{{ url_for('requests_page') }}"><span class="side-icon">✉</span><span class="side-text">Requests</span></a>
+        <a class="side-link {% if request.endpoint in ['messages_page','conversation'] %}active{% endif %}" href="{{ url_for('messages_page') }}"><span class="side-icon">▤</span><span class="side-text">Messages</span></a>
+        <a class="side-link {% if request.endpoint == 'notifications_page' %}active{% endif %}" href="{{ url_for('notifications_page') }}"><span class="side-icon">♢</span><span class="side-text">Notifications</span></a>
       </nav>
       <div class="sidebar-bottom"><a class="side-link logout-link" href="{{ url_for('logout') }}"><span class="side-icon">↪</span><span class="side-text">Log out</span></a></div>
 
@@ -40,6 +42,7 @@
         <a class="side-link {% if request.endpoint == 'admin_dashboard' %}active{% endif %}" href="{{ url_for('admin_dashboard') }}"><span class="side-icon">▦</span><span class="side-text">Dashboard</span></a>
         <a class="side-link {% if request.endpoint in ['admin_pgs','admin_pg_form'] %}active{% endif %}" href="{{ url_for('admin_pgs') }}"><span class="side-icon">⌂</span><span class="side-text">PG Listings</span></a>
         <a class="side-link {% if request.endpoint == 'admin_students' %}active{% endif %}" href="{{ url_for('admin_students') }}"><span class="side-icon">♙</span><span class="side-text">Students</span></a>
+        <a class="side-link {% if request.endpoint in ['admin_reports','admin_report_action'] %}active{% endif %}" href="{{ url_for('admin_reports') }}"><span class="side-icon">⚑</span><span class="side-text">Reports</span></a>
       </nav>
       <div class="sidebar-bottom"><a class="side-link logout-link" href="{{ url_for('logout') }}"><span class="side-icon">↪</span><span class="side-text">Log out</span></a></div>
 
