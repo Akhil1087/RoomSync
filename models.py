@@ -135,3 +135,46 @@ class Favorite(db.Model):
     __table_args__ = (db.UniqueConstraint("student_id", "pg_flat_id", name="uq_favorite_student_property"),)
     student = db.relationship("Student", backref=db.backref("favorites", cascade="all, delete-orphan"))
     pg_flat = db.relationship("PGFlat", backref=db.backref("favorited_by", cascade="all, delete-orphan"))
+
+
+class Message(db.Model):
+    __tablename__ = "messages"
+    id = db.Column(db.Integer, primary_key=True)
+    sender_id = db.Column(db.Integer, db.ForeignKey("students.id", ondelete="CASCADE"), nullable=False)
+    recipient_id = db.Column(db.Integer, db.ForeignKey("students.id", ondelete="CASCADE"), nullable=False)
+    body = db.Column(db.Text, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    read_at = db.Column(db.DateTime)
+    sender = db.relationship("Student", foreign_keys=[sender_id])
+    recipient = db.relationship("Student", foreign_keys=[recipient_id])
+
+
+class StudentBlock(db.Model):
+    __tablename__ = "student_blocks"
+    id = db.Column(db.Integer, primary_key=True)
+    blocker_id = db.Column(db.Integer, db.ForeignKey("students.id", ondelete="CASCADE"), nullable=False)
+    blocked_id = db.Column(db.Integer, db.ForeignKey("students.id", ondelete="CASCADE"), nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    __table_args__ = (db.UniqueConstraint("blocker_id", "blocked_id", name="uq_student_block"),)
+
+
+class StudentReport(db.Model):
+    __tablename__ = "student_reports"
+    id = db.Column(db.Integer, primary_key=True)
+    reporter_id = db.Column(db.Integer, db.ForeignKey("students.id", ondelete="CASCADE"), nullable=False)
+    reported_student_id = db.Column(db.Integer, db.ForeignKey("students.id", ondelete="CASCADE"), nullable=False)
+    reason = db.Column(db.String(80), nullable=False)
+    details = db.Column(db.Text, default="")
+    status = db.Column(db.String(20), default="open", nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+
+class Notification(db.Model):
+    __tablename__ = "notifications"
+    id = db.Column(db.Integer, primary_key=True)
+    student_id = db.Column(db.Integer, db.ForeignKey("students.id", ondelete="CASCADE"), nullable=False)
+    title = db.Column(db.String(140), nullable=False)
+    body = db.Column(db.String(300), default="")
+    target_url = db.Column(db.String(300), default="")
+    is_read = db.Column(db.Boolean, default=False, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)

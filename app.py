@@ -1,6 +1,6 @@
 import math
 import os
-from datetime import date
+from datetime import date, datetime
 from functools import wraps
 from pathlib import Path
 
@@ -9,9 +9,10 @@ from flask_wtf.csrf import CSRFProtect
 from flask_login import LoginManager, current_user, login_required, login_user, logout_user
 from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.utils import secure_filename
+from sqlalchemy import and_, or_
 
 from matching import WEIGHTS, calculate_compatibility, get_ranked_matches
-from models import Admin, ChatLog, ContactRequest, Favorite, PGFlat, Profile, Room, Student, db
+from models import Admin, ChatLog, ContactRequest, Favorite, Message, Notification, PGFlat, Profile, Room, Student, StudentBlock, StudentReport, db
 
 BASE_DIR = Path(__file__).resolve().parent
 UPLOAD_DIR = BASE_DIR / "static" / "uploads"
@@ -106,6 +107,29 @@ def parse_float(value, default=0.0):
         return float(value)
     except (TypeError, ValueError):
         return default
+
+
+def notify_student(student_id, title, body="", target_url=""):
+    db.session.add(Notification(student_id=student_id, title=title, body=body, target_url=target_url))
+
+
+def is_blocked_either_way(first_id, second_id):
+    return StudentBlock.query.filter(
+        or_(
+            and_(StudentBlock.blocker_id == first_id, StudentBlock.blocked_id == second_id),
+            and_(StudentBlock.blocker_id == second_id, StudentBlock.blocked_id == first_id),
+        )
+    ).first() is not None
+
+
+def accepted_connection(first_id, second_id):
+    return ContactRequest.query.filter(
+        ContactRequest.status == "accepted",
+        or_(
+            and_(ContactRequest.from_student_id == first_id, ContactRequest.to_student_id == second_id),
+            and_(ContactRequest.from_student_id == second_id, ContactRequest.to_student_id == first_id),
+        )
+    ).first() is not None
 
 
 def allowed_file(filename):
@@ -323,18 +347,38 @@ def pg_detail(pg_id):
 @student_required
 def student_view(student_id):
     student = db.get_or_404(Student, student_id)
-    if not student.active or not student.profile:
+    if student.id == current_user.id or not student.active or not student.profile or is_blocked_either_way(current_user.id, student.id):
         flash("Profile unavailable.", "warning")
-        return redirect(url_for("browse_pgs"))
+        return redirect(url_for("matches"))
     score, breakdown = calculate_compatibility(current_user.profile, student.profile)
-    return render_template("student_view.html", student=student, score=score, breakdown=breakdown)
+    connected = accepted_connection(current_user.id, student.id)
+    existing_request = ContactRequest.query.filter(
+        ContactRequest.status.in_(["pending", "accepted"]),
+        or_(and_(ContactRequest.from_student_id == current_user.id, ContactRequest.to_student_id == student.id), and_(ContactRequest.from_student_id == student.id, ContactRequest.to_student_id == current_user.id))
+    ).first()
+    return render_template("student_view.html", student=student, score=score, breakdown=breakdown, connected=connected, existing_request=existing_request)
 
 
 @app.route("/matches")
 @student_required
 def matches():
     results = get_ranked_matches(current_user, Student.query.all())
-    return render_template("matches.html", results=results)
+    college = request.args.get("college", "").strip()
+    campus = request.args.get("campus", "").strip()
+    minimum = parse_int(request.args.get("minimum"), 0)
+    property_choice = request.args.get("property", "").strip()
+    filtered = []
+    for item in results:
+        profile = item["student"].profile
+        if is_blocked_either_way(current_user.id, item["student"].id):
+            continue
+        if college and profile.college != college: continue
+        if campus and profile.campus != campus: continue
+        if minimum and item["score"] < minimum: continue
+        if property_choice == "selected" and not profile.pg_flat_id: continue
+        if property_choice == "same" and (not current_user.profile or profile.pg_flat_id != current_user.profile.pg_flat_id): continue
+        filtered.append(item)
+    return render_template("matches.html", results=filtered, colleges=DU_COLLEGES, selected_college=college, selected_campus=campus, minimum=minimum, property_choice=property_choice)
 
 
 @app.post("/contact/<int:student_id>")
@@ -344,13 +388,20 @@ def contact(student_id):
         flash("You cannot contact yourself.", "warning")
         return redirect(request.referrer or url_for("matches"))
     target = db.get_or_404(Student, student_id)
-    existing = ContactRequest.query.filter_by(from_student_id=current_user.id, to_student_id=target.id, status="pending").first()
+    if not target.active or is_blocked_either_way(current_user.id, target.id):
+        flash("This connection is unavailable.", "warning")
+        return redirect(request.referrer or url_for("matches"))
+    existing = ContactRequest.query.filter(
+        ContactRequest.status.in_(["pending", "accepted"]),
+        or_(and_(ContactRequest.from_student_id == current_user.id, ContactRequest.to_student_id == target.id), and_(ContactRequest.from_student_id == target.id, ContactRequest.to_student_id == current_user.id))
+    ).first()
     if not existing:
         db.session.add(ContactRequest(from_student_id=current_user.id, to_student_id=target.id))
+        notify_student(target.id, "New roommate request", f"{current_user.full_name} sent you a connection request.", url_for("requests_page"))
         db.session.commit()
-        flash("Contact request sent.", "success")
+        flash("Roommate request sent.", "success")
     else:
-        flash("You already have a pending request.", "info")
+        flash("A request or connection already exists.", "info")
     return redirect(request.referrer or url_for("matches"))
 
 
@@ -370,9 +421,102 @@ def request_action(req_id, action):
         flash("Action not allowed.", "danger")
         return redirect(url_for("requests_page"))
     req.status = "accepted" if action == "accept" else "declined"
+    title = "Roommate request accepted" if action == "accept" else "Roommate request declined"
+    body = f"{current_user.full_name} {req.status} your request."
+    notify_student(req.from_student_id, title, body, url_for("messages_page") if action == "accept" else url_for("requests_page"))
     db.session.commit()
     flash(f"Request {req.status}.", "success")
     return redirect(url_for("requests_page"))
+
+
+# ---------------- Roommate communication and safety ----------------
+@app.route("/messages")
+@student_required
+def messages_page():
+    requests_accepted = ContactRequest.query.filter(
+        ContactRequest.status == "accepted",
+        or_(ContactRequest.from_student_id == current_user.id, ContactRequest.to_student_id == current_user.id)
+    ).order_by(ContactRequest.created_at.desc()).all()
+    contacts = []
+    seen = set()
+    for connection in requests_accepted:
+        other_id = connection.to_student_id if connection.from_student_id == current_user.id else connection.from_student_id
+        if other_id in seen or is_blocked_either_way(current_user.id, other_id): continue
+        other = db.session.get(Student, other_id)
+        if other and other.active:
+            seen.add(other_id)
+            latest = Message.query.filter(
+                or_(and_(Message.sender_id == current_user.id, Message.recipient_id == other_id), and_(Message.sender_id == other_id, Message.recipient_id == current_user.id))
+            ).order_by(Message.created_at.desc()).first()
+            contacts.append({"student": other, "latest": latest})
+    contacts.sort(key=lambda x: x["latest"].created_at.timestamp() if x["latest"] else 0, reverse=True)
+    return render_template("messages.html", contacts=contacts)
+
+
+@app.route("/messages/<int:student_id>", methods=["GET", "POST"])
+@student_required
+def conversation(student_id):
+    other = db.get_or_404(Student, student_id)
+    if not other.active or other.id == current_user.id or not accepted_connection(current_user.id, other.id) or is_blocked_either_way(current_user.id, other.id):
+        flash("Messaging is available only between accepted, unblocked connections.", "warning")
+        return redirect(url_for("messages_page"))
+    if request.method == "POST":
+        body = request.form.get("body", "").strip()
+        if not body:
+            flash("Message cannot be empty.", "warning")
+        elif len(body) > 4000:
+            flash("Message is too long (maximum 4,000 characters).", "warning")
+        else:
+            db.session.add(Message(sender_id=current_user.id, recipient_id=other.id, body=body))
+            notify_student(other.id, "New private message", f"You received a message from {current_user.full_name}.", url_for("conversation", student_id=current_user.id))
+            db.session.commit()
+            return redirect(url_for("conversation", student_id=other.id))
+    thread = Message.query.filter(
+        or_(and_(Message.sender_id == current_user.id, Message.recipient_id == other.id), and_(Message.sender_id == other.id, Message.recipient_id == current_user.id))
+    ).order_by(Message.created_at.asc()).all()
+    Message.query.filter_by(sender_id=other.id, recipient_id=current_user.id, read_at=None).update({"read_at": datetime.utcnow()}, synchronize_session=False)
+    db.session.commit()
+    return render_template("conversation.html", other=other, thread=thread)
+
+
+@app.route("/notifications")
+@student_required
+def notifications_page():
+    items = Notification.query.filter_by(student_id=current_user.id).order_by(Notification.created_at.desc()).limit(100).all()
+    Notification.query.filter_by(student_id=current_user.id, is_read=False).update({"is_read": True}, synchronize_session=False)
+    db.session.commit()
+    return render_template("notifications.html", items=items)
+
+
+@app.post("/student/<int:student_id>/block")
+@student_required
+def block_student(student_id):
+    if student_id == current_user.id:
+        flash("You cannot block yourself.", "warning")
+    else:
+        target = db.get_or_404(Student, student_id)
+        existing = StudentBlock.query.filter_by(blocker_id=current_user.id, blocked_id=target.id).first()
+        if not existing:
+            db.session.add(StudentBlock(blocker_id=current_user.id, blocked_id=target.id))
+            db.session.commit()
+        flash("Student blocked. You will no longer see each other's profiles or messages.", "success")
+    return redirect(url_for("matches"))
+
+
+@app.post("/student/<int:student_id>/report")
+@student_required
+def report_student(student_id):
+    target = db.get_or_404(Student, student_id)
+    reason = request.form.get("reason", "").strip()
+    details = request.form.get("details", "").strip()
+    allowed = {"Inappropriate behaviour", "Fake profile", "Harassment", "Spam or scam", "Other"}
+    if target.id == current_user.id or reason not in allowed:
+        flash("Please choose a valid report reason.", "danger")
+    else:
+        db.session.add(StudentReport(reporter_id=current_user.id, reported_student_id=target.id, reason=reason, details=details[:2000]))
+        db.session.commit()
+        flash("Report submitted to the RoomSync team.", "success")
+    return redirect(url_for("matches"))
 
 
 # ---------------- Admin ----------------
@@ -471,6 +615,26 @@ def admin_toggle_student(student_id):
     db.session.commit()
     flash("Student status updated.", "success")
     return redirect(url_for("admin_students"))
+
+
+@app.route("/admin/reports")
+@admin_required
+def admin_reports():
+    reports = StudentReport.query.order_by(StudentReport.created_at.desc()).all()
+    return render_template("admin_reports.html", reports=reports, students={student.id: student for student in Student.query.all()})
+
+
+@app.post("/admin/report/<int:report_id>/<action>")
+@admin_required
+def admin_report_action(report_id, action):
+    report = db.get_or_404(StudentReport, report_id)
+    if action not in {"reviewed", "dismissed"}:
+        flash("Invalid report action.", "danger")
+    else:
+        report.status = action
+        db.session.commit()
+        flash("Report updated.", "success")
+    return redirect(url_for("admin_reports"))
 
 
 # ---------------- Rule-based assistant ----------------
